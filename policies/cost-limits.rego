@@ -2,7 +2,7 @@ package main
 
 import rego.v1
 
-# Deny expensive storage replication types in dev
+# Deny expensive storage replication types in development
 deny contains msg if {
     resource := input.resource_changes[_]
     resource.type == "azurerm_storage_account"
