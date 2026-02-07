@@ -1,0 +1,97 @@
+name: Drift Detection
+
+on:
+  schedule:
+    # Runs every day at 9 AM UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_USE_OIDC: true
+
+jobs:
+  detect-drift:
+    name: Detect Infrastructure Drift
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ./environments/dev
+        run: terraform init -backend-config=backend-config.hcl
+
+      - name: Check for Drift
+        id: drift
+        working-directory: ./environments/dev
+        run: |
+          terraform plan -detailed-exitcode -no-color > drift-report.txt || export exitcode=$?
+          echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
+          
+          if [ $exitcode -eq 2 ]; then
+            echo "DRIFT DETECTED!"
+            cat drift-report.txt
+          fi
+        continue-on-error: true
+
+      - name: Create Issue on Drift
+        if: steps.drift.outputs.exitcode == 2
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const drift = fs.readFileSync('environments/dev/drift-report.txt', 'utf8');
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Infrastructure Drift Detected - ' + new Date().toDateString(),
+              body: `## Drift Detection Report
+              
+              Infrastructure drift has been detected in the dev environment.
+              
+              **Detected at:** ${new Date().toISOString()}
+              **Environment:** Development
+              
+              <details><summary>Drift Details</summary>
+              
+              \`\`\`terraform
+              ${drift}
+              \`\`\`
+              
+              </details>
+              
+              ### Next Steps
+              1. Review the changes above
+              2. Decide: Update Terraform code OR re-apply to fix drift
+              3. Close this issue once resolved
+              `,
+              labels: ['drift-detection', 'infrastructure']
+            })
+
+      - name: Send Notification
+        if: steps.drift.outputs.exitcode == 2
+        run: |
+          echo "🚨 DRIFT DETECTED! GitHub issue created."
+          # Add Slack/Teams webhook here if needed

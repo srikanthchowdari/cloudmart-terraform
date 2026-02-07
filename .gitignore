@@ -1,0 +1,32 @@
+# Terraform files
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfplan
+*.tfvars
+!terraform.tfvars.example
+
+# Backend config (contains sensitive info)
+backend-config.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+
+# 2. Remove these files from git staging (keep them locally)
+git reset HEAD environments/dev/backend-config.hcl
+git reset HEAD environments/dev/tfplan.json
+git reset HEAD environments/prod/backend-config.hcl
+git reset HEAD environments/staging/backend-config.hcl
+# Backend configs (contain state backend details)
+**/backend-config.hcl
+
+# Plan JSON files
+**/tfplan.json
